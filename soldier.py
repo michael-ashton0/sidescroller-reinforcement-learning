@@ -138,18 +138,28 @@ class Soldier(pygame.sprite.Sprite):
         '''
 
         # Handle vertical movement
-        if jump_cmd and not self.in_air:
+        if jump_cmd and not self.in_air and self.vel_y == 0:
             Soldier.jump_fx.play()
             self.vel_y = ENVIRONMENT.SOLDIER_JUMP_STRENGTH
             self.in_air = True
+            if not mright_cmd:
+                vector = 'left'
+            else:
+                vector = 'right'
 
         # Handle lateral movement
         if mleft_cmd and not mright_cmd:
             self.direction = Direction.LEFT
-            self.vel_x = self.speed
+            if self.in_air:
+                self.vel_x += self.speed / 15
+            else:
+                self.vel_x = self.speed
         elif mright_cmd and not mleft_cmd:
             self.direction = Direction.RIGHT
-            self.vel_x = self.speed
+            if self.in_air:
+                self.vel_x += self.speed / 15
+            else:
+                self.vel_x = self.speed
         else:
             # holding both buttons simultaneously
             self.vel_x = 0
@@ -159,6 +169,8 @@ class Soldier(pygame.sprite.Sprite):
         The physics engine calls this function when the Soldier is jumping and
         hits the ground. It records the fact that the soldier can jump again.
         '''
+        if self.vel_y > 19:
+            self.health -= (self.vel_y - 13)
         self.vel_y = 0
         self.in_air = False
 
