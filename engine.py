@@ -235,6 +235,9 @@ class GameEngine():
                 if enemy.health >= 0:
                     enemy.health -= bullet.damage
                     bullet.kill()
+        for obstacle in self.groups['obstacle']:
+            for bullet in spritecollide(obstacle, self.groups['bullet'], False):
+                bullet.kill()
 
 
     def make_grenades_explode(self):
