@@ -1,0 +1,28 @@
+1. Set up environment
+
+Live NN
+--------------------------------------
+1. Define shape (2 hidden layers?)
+2. Activation func (relu)
+3. Run inputs -> Optimizer -> Outputs 
+4. Train w/ Gradient descent
+5. Pass to stable as live learns
+
+Stable NN
+--------------------------------------
+1. Receive input from stable
+2. Same as above
+3. Evaluate the q-values
+
+Q-Learning approach
+--------------------------------------
+1. Pick exploration strat (epsilon greedy)
+2. Calculate Q-vals: pick highest yield action
+3. Iterate through episode
+4. Many many episodes
+
+Train Episode Function
+--------------------------------------
+1. env.reset()
+2. Reset variables
+3. Iterate through episodes
