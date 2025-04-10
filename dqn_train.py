@@ -10,9 +10,9 @@ EPSILON_START = 1.0      # Begin with 100% random exploration
 EPSILON_DECAY = 0.995    # Decay slowly
 EPSILON_MIN = 0.05       # Never fully stop exploring
 TARGET_UPDATE_FREQ = 10  # How often to reload stable_net from online_net
-TARGET_RENDER_FREQ = 1000  # How often to render the agent during training
+TARGET_RENDER_FREQ = 50  # How often to render the agent during training
 BATCH_SIZE = 64          # Balance learning with efficiency
-MAX_EPISODES = 64_000    # 64k ought to be enough for anybody! :)
+MAX_EPISODES = 2000    # 64k ought to be enough for anybody! :)
 
 # Global variable holding CPU/GPU status
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
