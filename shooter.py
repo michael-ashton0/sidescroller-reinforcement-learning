@@ -33,11 +33,11 @@ class InteractiveShooter():
 
         # Find which keys have been pressed
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_a:
+            if event.key == pygame.K_LEFT:
                 self.controller.mleft = True
-            if event.key == pygame.K_d:
+            if event.key == pygame.K_RIGHT:
                 self.controller.mright = True
-            if event.key == pygame.K_w:
+            if event.key == pygame.K_UP:
                 self.controller.jump = True
             if event.key == pygame.K_SPACE:
                 self.controller.shoot = True
@@ -46,11 +46,11 @@ class InteractiveShooter():
 
         # Find which keys have been released
         if event.type == pygame.KEYUP:
-            if event.key == pygame.K_a:
+            if event.key == pygame.K_LEFT:
                 self.controller.mleft = False
-            if event.key == pygame.K_d:
+            if event.key == pygame.K_RIGHT:
                 self.controller.mright = False
-            if event.key == pygame.K_w:
+            if event.key == pygame.K_UP:
                 self.controller.jump = False
             if event.key == pygame.K_SPACE:
                 self.controller.shoot = False    

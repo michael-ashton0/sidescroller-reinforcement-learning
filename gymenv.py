@@ -1,5 +1,5 @@
 import pygame
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, COLOR
+from settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, COLOR, TILEMAP
 pygame.init()
 pygame.mixer.init()
 pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -12,6 +12,7 @@ from gymnasium import spaces
 from gymnasium.envs.registration import register
 from engine import GameEngine
 from controller import GameController
+import csv
 
 # Not required unless we want to provide traditional gym.make capabilities
 register(id='Shooter-v0',
@@ -60,9 +61,9 @@ class ShooterEnv(gym.Env):
         + num_bullets
         + num_nades
         '''
-        # Observation format:[dx_exit, dy_exit, bullets, nades]
-        low = np.array([-100000, -100000, 0, 0])
-        high = np.array([100000, 100000, 60, 20])
+        # Observation format: [exit_dx, exit_dy, alive, finished, self.step_count, p.ammo, front_right_tile]
+        low = np.array([-100000, -100000, 0, 0, 0, 0, 0, 0])
+        high = np.array([100000, 100000, 1, 1, 2000, 50, 20, 20])
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
 
         ## ORIGINAL ##
@@ -141,10 +142,11 @@ class ShooterEnv(gym.Env):
         # Exit distance
         exit_dx, exit_dy = self._get_exit_offset(p)
         # Do we need to check alive and finished since they are already calculated in rewards?
-        '''      
+             
         alive = self.game.player.alive 
+
         finished = self.game.level_complete
-        '''
+
         '''
         + x_distance from goal (do we really need y distance?)
         + death (I think this removes the need to keep track of health unless I want a bot that doesn't take damage)
@@ -153,16 +155,48 @@ class ShooterEnv(gym.Env):
         + num_bullets
         + num_nades
         '''
+
+        # Check if there is ground in front of the player
+        def get_front_right_tile(p):
+            self.world_data = []
+            with open(f'level{self.game.level}_data.csv', 'r') as csvfile:
+                reader = csv.reader(csvfile, delimiter=',')
+                for idx_y, row_of_tiles in enumerate(reader):
+                    self.world_data.append([])
+                    for idx_x, tile_data in enumerate(row_of_tiles):
+                        self.world_data[idx_y].append(int(tile_data))
+            tile_x = p.rect.centerx // 45
+            tile_y = p.rect.centery // 45
+            tile_ahead_x = tile_x + 1
+            tile_below_y = tile_y + 1
+            tile_ahead = self.world_data[tile_y][tile_ahead_x]
+            tile_below = self.world_data[tile_below_y][tile_ahead_x]
+            # Check if the tile is a solid tile (1-20) or empty (-1)
+            if tile_ahead in [7,8,9, -1]: # water tile or empty space
+                tile_ahead = 1 if tile_ahead in range(1, 21) else 0
+            else:
+                tile_ahead = 0
+            if tile_below in [7,8,9, -1]:
+                tile_below = 1 if tile_below in range(1, 21) else 0
+            else:
+                tile_below = 0
+
+            return tile_ahead, tile_below
+        
+        front_right_tile = get_front_right_tile(p)[0]
+        front_bottom_tile = get_front_right_tile(p)[1]
+
+
         # Create an observation (4 values)
         obs = [
             exit_dx,
             exit_dy,
-            #alive,
-            #finished,
+            alive,
+            finished,
             self.step_count,
-            # do you even need to track these? 
-            # at some point it will recognize nothing is happening once they are pressed x number of times
             p.ammo,
+            front_right_tile,
+            front_bottom_tile
         ]
 
         # Create debug information
@@ -187,20 +221,24 @@ class ShooterEnv(gym.Env):
                 min_dist = dist
                 closest_dx = dx
                 closest_dy = dy
-
         return closest_dx, closest_dy
 
 
     def _get_reward(self):
+        # TODO: Balance the death and rewards so that getting far and dying gives a higher reward than staying at the start
         if not self.game.player.alive:
-            return -100
+            return -100_000_000
          # Originally was reward increment as player increases distance from start
          # Decided that minimizing distance from the end was my approach
          # I'm thinking that this also incentivizes taking a long time but I am not sure
-        reward = -0.1 * (self._get_exit_offset(self.game.player)[0] - self.game.player.rect.centerx)
-        reward -= (1 * self.step_count)
+        reward = 10 * (self._get_exit_offset(self.game.player)[0] - self.game.player.rect.centerx)
+        reward += 10 * (self._get_exit_offset(self.game.player)[1] - self.game.player.rect.centery)
+        #reward -= (1 * self.step_count)
         if self.game.player.action == 'jump' and not self.game.player.in_air:
-            reward += 10
+            reward += 10_000
+        if self.game.player.action == 'shoot' or 'throw':
+            reward -= 1_000_000
+        
         if self.game.level_complete:
             reward += 100_000_000
         

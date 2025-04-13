@@ -4,13 +4,14 @@ import torch
 from dqn_model import DQN, ReplayBuffer
 from dqn_render import visualize_episode
 from gymenv import ShooterEnv
+import os
 
 GAMMA = 0.99             # Discount factor highly values future reward
 EPSILON_START = 1.0      # Begin with 100% random exploration
 EPSILON_DECAY = 0.995    # Decay slowly
 EPSILON_MIN = 0.05       # Never fully stop exploring
 TARGET_UPDATE_FREQ = 10  # How often to reload stable_net from online_net
-TARGET_RENDER_FREQ = 50  # How often to render the agent during training
+TARGET_RENDER_FREQ = 100  # How often to render the agent during training
 BATCH_SIZE = 64          # Balance learning with efficiency
 MAX_EPISODES = 2000    # 64k ought to be enough for anybody! :)
 
@@ -57,8 +58,8 @@ def train_episode(env:ShooterEnv,
 
         # Take a step forward in the game environment.
         nstate, reward, terminated, truncated, info = env.step(action)
+        total_reward += reward # put this in front of done to get the last step's rewards
         done = terminated or truncated
-        total_reward += reward
 
         # Add this step to our replay buffer and convert to a torch object.
         #replay.push((state.numpy(), action, reward, next_state, done))
@@ -106,7 +107,16 @@ def main():
 
     # Online and stable networks with the stable version being a copy of the
     # online version that is refreshed slowly to maintain learning stability.
-    online_net = DQN(obs_size, n_actions)
+    file_path = 'dqn_shooter_final.pt'
+    if os.path.exists(file_path):
+        print(f"Loading existing model from '{file_path}'")
+        online_net = DQN(obs_size, n_actions)
+        online_net.load_state_dict(torch.load(file_path))
+        online_net.to(device)
+    else:
+        print(f"Creating new model")
+        online_net = DQN(obs_size, n_actions)
+    
     stable_net = DQN(obs_size, n_actions)
     online_net.to(device)
     stable_net.to(device)

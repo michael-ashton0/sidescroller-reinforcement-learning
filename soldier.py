@@ -303,7 +303,6 @@ class Enemy(Soldier):
         '''
         AI movement, ensuring enemies don't walk into walls or off cliffs.
         '''
-       
         # If enemy is idling, stop moving
         if self.idling:
             self.vel_x = 0
