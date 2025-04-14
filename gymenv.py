@@ -129,7 +129,7 @@ class ShooterEnv(gym.Env):
         self.game.draw()
         pygame.display.update()
 
-    def is_moving(p):
+    def is_moving(self, p):
         p = self.game.player
         if p.vel_x == 0 and p.vel_y == 0:
           return False
