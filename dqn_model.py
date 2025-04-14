@@ -30,10 +30,10 @@ class DQN(nn.Module):
         - lr_alpha (float): The learning rate for the optimizer.
         '''
         super().__init__()
-        self.fc1 = nn.Linear(obs_size, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.out = nn.Linear(128, n_actions)
+        self.fc1 = nn.Linear(obs_size, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.out = nn.Linear(64, n_actions)
         self.optimizer = optim.Adam(self.parameters(), lr=lr_alpha)
 
 

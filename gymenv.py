@@ -6,7 +6,6 @@ pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Shooter')
 from os import environ
 import numpy as np
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.registration import register
@@ -61,9 +60,9 @@ class ShooterEnv(gym.Env):
         + num_bullets
         + num_nades
         '''
-        # Observation format: [exit_dx, exit_dy, alive, finished, self.step_count, p.ammo, front_right_tile]
-        low = np.array([-100000, -100000, 0, 0, 0, 0, 0, 0])
-        high = np.array([100000, 100000, 1, 1, 2000, 50, 20, 20])
+        # Observation format: [exit_dx, exit_dy, start_dx, start_dy, alive, finished, front_right_tile]
+        low = np.array([-100000, -100000, -100000, -100000, 0, 0, 0, 0, 0])
+        high = np.array([100000, 100000, 100000, 100000, 1, 1, 20, 20, 1])
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
 
         ## ORIGINAL ##
@@ -130,32 +129,30 @@ class ShooterEnv(gym.Env):
         self.game.draw()
         pygame.display.update()
 
+    def is_moving(p):
+        p = self.game.player
+        if p.vel_x == 0 and p.vel_y == 0:
+          return False
+        else:
+           return True
 
+        
     def _get_observation(self):
         p = self.game.player
-    
+
         # Distance from start
-        p_dx = p.rect.centerx - self.start_x
-        p_dy = p.rect.centery - self.start_y
+        start_dx = p.rect.centerx - self.start_x
+        start_dy = p.rect.centery - self.start_y
         
-        # My observations
         # Exit distance
         exit_dx, exit_dy = self._get_exit_offset(p)
-        # Do we need to check alive and finished since they are already calculated in rewards?
+
+        # Check if the player is moving
+        moving = self.is_moving(p) 
              
         alive = self.game.player.alive 
-
         finished = self.game.level_complete
-
-        '''
-        + x_distance from goal (do we really need y distance?)
-        + death (I think this removes the need to keep track of health unless I want a bot that doesn't take damage)
-        + finish level
-        + step_count
-        + num_bullets
-        + num_nades
-        '''
-
+        
         # Check if there is ground in front of the player
         def get_front_right_tile(p):
             self.world_data = []
@@ -180,29 +177,35 @@ class ShooterEnv(gym.Env):
                 tile_below = 1 if tile_below in range(1, 21) else 0
             else:
                 tile_below = 0
-
             return tile_ahead, tile_below
-        
-        front_right_tile = get_front_right_tile(p)[0]
-        front_bottom_tile = get_front_right_tile(p)[1]
+        if not p.in_air:
+            try:
+                front_right_tile, front_bottom_tile = get_front_right_tile(p)
+            except IndexError:
+                front_right_tile = 0
+                front_bottom_tile = 0
+        else:
+            front_right_tile = 1
+            front_bottom_tile = 1
 
 
         # Create an observation (4 values)
         obs = [
             exit_dx,
             exit_dy,
+            start_dx,
+            start_dy,
             alive,
             finished,
-            self.step_count,
-            p.ammo,
             front_right_tile,
-            front_bottom_tile
+            front_bottom_tile,
+            moving
         ]
 
         # Create debug information
         debug_info = {
             'player_health': p.health,
-            'player_distance': (p_dx, p_dy),
+            'player_distance': (start_dx, start_dy),
             'exit_xdistance': (exit_dx),
         }
 
@@ -227,20 +230,25 @@ class ShooterEnv(gym.Env):
     def _get_reward(self):
         # TODO: Balance the death and rewards so that getting far and dying gives a higher reward than staying at the start
         if not self.game.player.alive:
-            return -100_000_000
+            return -100_000
          # Originally was reward increment as player increases distance from start
          # Decided that minimizing distance from the end was my approach
          # I'm thinking that this also incentivizes taking a long time but I am not sure
-        reward = 10 * (self._get_exit_offset(self.game.player)[0] - self.game.player.rect.centerx)
-        reward += 10 * (self._get_exit_offset(self.game.player)[1] - self.game.player.rect.centery)
+        
+        reward = 0.1 * (self.game.player.rect.centerx - self.start_x)
+        reward += 0.1 * (self._get_exit_offset(self.game.player)[0] - self.game.player.rect.centerx)
+        reward += 0.1 * (self._get_exit_offset(self.game.player)[1] - self.game.player.rect.centery)
         #reward -= (1 * self.step_count)
         if self.game.player.action == 'jump' and not self.game.player.in_air:
-            reward += 10_000
-        if self.game.player.action == 'shoot' or 'throw':
-            reward -= 1_000_000
+            reward += 1_000
+        if self.game.player.action == 'shoot' or 'throw': # Pacifist
+            reward -= 10_000
+        # If the player is moving, give a small reward
+        if self.game.player.vel_x != 0:
+            reward += 1000
         
         if self.game.level_complete:
-            reward += 100_000_000
+            reward += 100_000
         
         return reward
 
