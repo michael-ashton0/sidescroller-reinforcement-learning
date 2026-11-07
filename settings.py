@@ -104,3 +104,15 @@ class Direction(IntEnum):
         if operand == -1:
             return Direction(-self.value)
         raise ValueError("Multiplication only support -1 to reverse direction")
+
+# Shared RL defaults. Registered environments delegate the limit to TimeLimit.
+DEFAULT_EPISODE_STEPS = 1000
+
+
+@dataclass(frozen=True)
+class RewardSettings:
+    progress: float = 0.1
+    shoot: float = -10_000.0
+    throw: float = -10_000.0
+    death: float = -100_000.0
+    completion: float = 100_000.0

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from dqn_model import DQN, ReplayBuffer
 from gymenv import ShooterEnv
+from settings import DEFAULT_EPISODE_STEPS
 
 
 def optimize(online, target, replay, batch_size=64, gamma=0.99):
@@ -34,7 +35,10 @@ def train_episode(env, online_net, stable_net, epsilon, replay, batch_size=64, s
         total_reward += reward
         state = next_state
         if len(replay) >= batch_size:
-            losses.append(optimize(online_net, stable_net, replay, batch_size))
+            loss = optimize(online_net, stable_net, replay, batch_size)
+            if not np.isfinite(loss):
+                raise FloatingPointError(f'Nonfinite training loss: {loss}')
+            losses.append(loss)
         if terminated or truncated:
             return dict(reward=total_reward, steps=env.step_count,
                         terminated=terminated, truncated=truncated, updates=len(losses),
@@ -44,7 +48,7 @@ def train_episode(env, online_net, stable_net, epsilon, replay, batch_size=64, s
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--episodes', type=int, default=2)
-    parser.add_argument('--max-steps', type=int, default=1000)
+    parser.add_argument('--max-steps', type=int, default=DEFAULT_EPISODE_STEPS)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--device', default='cpu')

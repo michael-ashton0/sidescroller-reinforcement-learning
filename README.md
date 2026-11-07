@@ -27,6 +27,39 @@ synchronize every ten episodes. Episode logs report return, steps, ending reason
 update count, mean loss, and epsilon. Seeds cover exploration, replay, Torch, and
 an environment-owned enemy RNG; GPU reproducibility across hardware is not assured.
 
+## Verification and configuration
+
+GitHub Actions (`.github/workflows/baseline.yml`) installs the pinned dependencies
+on Python 3.12, runs unittest, and trains two 100-step headless episodes. Each
+command is a separate required job step; failures propagate to the job. Nonfinite
+optimizer losses also cause training to exit unsuccessfully.
+
+Import `gymenv` before calling `gymnasium.make("Shooter-v0")` to register it.
+`DEFAULT_EPISODE_STEPS` in `settings.py` supplies the 1,000-step default for both
+direct environments and training. Registered environments delegate limits solely
+to Gymnasium's `TimeLimit`, so `gym.make("Shooter-v0", max_episode_steps=2000)`
+can override the default without an earlier internal cutoff. Direct construction
+accepts `max_episode_steps=...` and handles its own limit.
+
+`RewardSettings` in `settings.py` exposes progress, shooting, throwing, death,
+and completion coefficients without changing their baseline scales. Pass
+`ShooterEnv(reward_settings=RewardSettings(...))` or provide the same keyword to
+`gym.make`. Death overrides all other components; completion adds to progress
+and command penalties. A Python dataclass keeps these few settings explicit
+without a config loader. Add a saved TOML/JSON experiment configuration later
+when comparing runs requires recording settings alongside results.
+
+The verification pass passed 14 tests locally, including registered default and
+3/1,001-step override limits, alternating headless/human-mode creation using SDL
+dummy drivers, repeated close, global `pygame.quit()`, and reinitialization.
+It fixed a stale cached HUD font that caused a native crash after global shutdown.
+Closed instances reject reset/step; create a new instance to restart. Concurrent
+environments still share Pygame resources and remain unsupported.
+The two-episode smoke test completed 100 steps each with 85 and 100 updates and
+finite mean losses (3568.0054 and 3102.5713). Real display/audio hardware and CUDA
+remain untested; dummy-driver rendering is covered. Hosted CI results must be
+checked before merging; local tests do not establish learning convergence.
+
 ## Baseline decisions and limits
 
 The nine observation features, seven actions, MLP, and airborne acceleration

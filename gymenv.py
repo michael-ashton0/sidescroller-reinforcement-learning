@@ -5,14 +5,15 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.registration import register
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT, TILEMAP
-from engine import GameEngine
+from settings import SCREEN_WIDTH, SCREEN_HEIGHT, TILEMAP, DEFAULT_EPISODE_STEPS, RewardSettings
+from engine import GameEngine, TextBar
 from controller import GameController
 
 # Not required unless we want to provide traditional gym.make capabilities
 register(id='Shooter-v0',
          entry_point='gymenv:ShooterEnv',
-         max_episode_steps=5000)
+         max_episode_steps=DEFAULT_EPISODE_STEPS,
+         kwargs={'max_episode_steps': None})
 
 class ShooterEnv(gym.Env):
     '''
@@ -25,7 +26,8 @@ class ShooterEnv(gym.Env):
         'render_fps': 60
     }
 
-    def __init__(self, render_mode=None, max_episode_steps=1000):
+    def __init__(self, render_mode=None, max_episode_steps=DEFAULT_EPISODE_STEPS,
+                 reward_settings=None):
         '''
         Initializes a new Gymnasium environment for the Shooter Game. Loads the
         game engine into the background and defines the action space and the
@@ -35,13 +37,18 @@ class ShooterEnv(gym.Env):
         super().__init__()
         if render_mode not in (None, 'human'):
             raise ValueError(f'Unsupported render mode: {render_mode}')
-        if max_episode_steps <= 0:
+        if max_episode_steps is not None and max_episode_steps <= 0:
             raise ValueError('max_episode_steps must be positive')
+        self.reward_settings = reward_settings if reward_settings is not None else RewardSettings()
+        self._closed = False
         self.render_mode = render_mode
         self.max_episode_steps = max_episode_steps
         if render_mode is None and not pygame.display.get_init():
             os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
         pygame.display.init()
+        if not pygame.font.get_init():
+            # Font objects cannot survive pygame.font.quit()/pygame.quit().
+            TextBar.font = None
         pygame.font.init()
         if render_mode == 'human':
             pygame.mixer.init()
@@ -79,6 +86,8 @@ class ShooterEnv(gym.Env):
         '''
         Resets the game environment for the beginning of another episode.
         '''
+        if self._closed:
+            raise RuntimeError("Cannot reset a closed environment; create a new instance")
         super().reset(seed=seed)
         if seed is not None:
             self.action_space.seed(seed)
@@ -121,7 +130,8 @@ class ShooterEnv(gym.Env):
         observation, debug_info = self._get_observation()
         reward = self._get_reward()
         terminated = not self.game.player.alive or self.game.level_complete
-        truncated = self.step_count >= self.max_episode_steps and not terminated
+        truncated = (self.max_episode_steps is not None
+                     and self.step_count >= self.max_episode_steps and not terminated)
         self._ended = terminated or truncated
 
         return observation, reward, terminated, truncated, debug_info
@@ -220,16 +230,22 @@ class ShooterEnv(gym.Env):
         progress = p.rect.centerx - self.previous_x
         self.previous_x = p.rect.centerx
         if not p.alive:
-            return -100_000.0
-        reward = 0.1 * progress
+            return float(self.reward_settings.death)
+        reward = self.reward_settings.progress * progress
         # Actions are controller commands; animation enums never represent shooting.
-        if self.last_action in (5, 6):
-            reward -= 10_000
+        if self.last_action == 5:
+            reward += self.reward_settings.shoot
+        elif self.last_action == 6:
+            reward += self.reward_settings.throw
         if self.game.level_complete:
-            reward += 100_000
+            reward += self.reward_settings.completion
         return float(reward)
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._ended = True
         if self.render_mode == 'human' and pygame.mixer.get_init():
             pygame.mixer.music.stop()
             pygame.mixer.quit()

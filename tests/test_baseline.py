@@ -2,6 +2,8 @@ import os
 os.environ['SDL_VIDEODRIVER'] = 'dummy'
 os.environ['SDL_AUDIODRIVER'] = 'dummy'
 import unittest
+import gymnasium as gym
+from settings import DEFAULT_EPISODE_STEPS, RewardSettings
 import numpy as np
 import pygame
 import torch
@@ -89,6 +91,102 @@ class EnvironmentTests(unittest.TestCase):
             setattr(p, attr, cap - 1)
             self.env.game.collect_item_boxes()
             self.assertEqual(getattr(p, attr), cap)
+
+
+class RegisteredLifecycleTests(unittest.TestCase):
+    def test_registered_default_and_overridden_limits(self):
+        # Gym's TimeLimit alone owns registered limits, so overrides can exceed 1000.
+        for limit in (DEFAULT_EPISODE_STEPS, 3, DEFAULT_EPISODE_STEPS + 1):
+            with self.subTest(limit=limit):
+                kwargs = {} if limit == DEFAULT_EPISODE_STEPS else {'max_episode_steps': limit}
+                env = gym.make('Shooter-v0', **kwargs)
+                try:
+                    self.assertEqual(env.spec.max_episode_steps, limit)
+                    self.assertIsNone(env.unwrapped.max_episode_steps)
+                    obs, _ = env.reset(seed=7)
+                    self.assertTrue(env.observation_space.contains(obs))
+                    # Jump commands keep the player in place, away from enemies.
+                    for step in range(1, limit + 1):
+                        obs, reward, terminal, truncated, _ = env.step(2)
+                        self.assertTrue(env.observation_space.contains(obs))
+                        self.assertTrue(np.isfinite(reward))
+                        self.assertFalse(terminal)
+                        self.assertEqual(truncated, step == limit)
+                finally:
+                    env.close()
+
+    def test_repeated_creation_close_and_reinitialization(self):
+        for mode in (None, 'human', None, 'human', None):
+            with self.subTest(mode=mode):
+                env = ShooterEnv(render_mode=mode, max_episode_steps=2)
+                obs, _ = env.reset(seed=3)
+                self.assertTrue(env.observation_space.contains(obs))
+                env.step(5)
+                env.render()
+                env.close()
+                env.close()
+                self.assertFalse(pygame.display.get_init())
+                self.assertFalse(pygame.mixer.get_init())
+                with self.assertRaises(RuntimeError):
+                    env.step(0)
+                with self.assertRaises(RuntimeError):
+                    env.reset()
+                # Also cover external global shutdown between instances.
+                pygame.quit()
+
+
+class RewardTests(unittest.TestCase):
+    def setUp(self):
+        self.env = ShooterEnv()
+        self.env.reset(seed=1)
+        self.env.last_action = 0
+
+    def tearDown(self):
+        self.env.close()
+
+    def test_progress(self):
+        self.assertEqual(self.env._get_reward(), 0)
+        self.env.game.player.rect.x += 10
+        self.assertEqual(self.env._get_reward(), 1)
+        self.assertEqual(self.env._get_reward(), 0)
+        self.env.game.player.rect.x -= 20
+        self.assertEqual(self.env._get_reward(), -2)
+
+    def test_shoot_and_throw_commands(self):
+        for action in (5, 6):
+            with self.subTest(action=action):
+                self.env.last_action = action
+                self.assertEqual(self.env._get_reward(), -10000)
+                self.env.game.player.rect.x += 10
+                self.assertEqual(self.env._get_reward(), -9999)
+
+    def test_death_overrides_other_components(self):
+        self.env.game.player.alive = False
+        self.env.game.player.rect.x += 10
+        self.env.game.level_complete = True
+        self.env.last_action = 6
+        self.assertEqual(self.env._get_reward(), -100000)
+
+    def test_completion_adds_to_progress_and_command(self):
+        self.env.game.level_complete = True
+        self.assertEqual(self.env._get_reward(), 100000)
+        self.env.game.player.rect.x += 10
+        self.env.last_action = 5
+        self.assertEqual(self.env._get_reward(), 90001)
+
+    def test_configurable_coefficients(self):
+        self.env.reward_settings = RewardSettings(progress=2, shoot=-3, throw=-4,
+                                                   death=-5, completion=6)
+        self.env.game.player.rect.x += 10
+        self.assertEqual(self.env._get_reward(), 20)
+        for action, expected in ((5, -3), (6, -4)):
+            self.env.last_action = action
+            self.assertEqual(self.env._get_reward(), expected)
+        self.env.last_action = 0
+        self.env.game.level_complete = True
+        self.assertEqual(self.env._get_reward(), 6)
+        self.env.game.player.alive = False
+        self.assertEqual(self.env._get_reward(), -5)
 
 
 class DQNTests(unittest.TestCase):
