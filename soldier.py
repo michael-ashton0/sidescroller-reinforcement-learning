@@ -235,7 +235,8 @@ class Soldier(pygame.sprite.Sprite):
         x_offset = int(20 * self.direction.value) # 20 is a hack
         x = self.rect.centerx + x_offset
         y = self.rect.top
-        return Grenade(x, y, self.direction)
+        return Grenade(x, y, self.direction,
+                       time_based_fuse=self.counter_type == CounterType.TIME_BASED)
 
 
     def throw(self):
@@ -299,10 +300,11 @@ class Enemy(Soldier):
         self.shoot_time = self.animation_time
         self.throw_time = self.animation_time        
 
-    def ai_move(self, world_map, tile_size, movement_limit=200):
+    def ai_move(self, world_map, tile_size, movement_limit=200, rng=None):
         '''
         AI movement, ensuring enemies don't walk into walls or off cliffs.
         '''
+        rng = rng or random
         # If enemy is idling, stop moving
         if self.idling:
             self.vel_x = 0
@@ -317,8 +319,12 @@ class Enemy(Soldier):
         tile_y = self.rect.centery // tile_size
         tile_ahead_x = tile_x + self.direction
         tile_below_y = tile_y + 1
-        tile_ahead = world_map[tile_y][tile_ahead_x]
-        tile_below = world_map[tile_below_y][tile_ahead_x]
+        def tile_at(row, col):
+            if 0 <= row < len(world_map) and 0 <= col < len(world_map[row]):
+                return world_map[row][col]
+            return TILEMAP.EMPTY_TILE
+        tile_ahead = tile_at(tile_y, tile_ahead_x)
+        tile_below = tile_at(tile_below_y, tile_ahead_x)
 
         # Check for walls, cliffs, and random behavior
         wall_ahead = False
@@ -331,7 +337,7 @@ class Enemy(Soldier):
                 (tile_below >= TILEMAP.WATER_TILE_FIRST
                  and tile_below <= TILEMAP.WATER_TILE_LAST)):
             cliff_ahead = True
-        elif random.randint(1, movement_limit) == 1:
+        elif rng.randint(1, movement_limit) == 1:
             random_turn = True
 
         # Reasons to turn and pause
@@ -340,7 +346,7 @@ class Enemy(Soldier):
             self.direction *= -1
             self.idling = True
             self.move_counter = 0
-            self.idling_counter = random.randint(25, 75)                
+            self.idling_counter = rng.randint(25, 75)
         
         # Otherwise, move forward
         else:

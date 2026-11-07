@@ -1,3 +1,65 @@
+# Baseline rehabilitation
+
+Work is on `rehab`, based on recovered `progress-update`. Run commands from
+this repository root because game assets use relative paths. Python 3.12 is
+verified; dependencies are pinned in `requirements.txt`.
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python dqn_train.py --episodes 2 --max-steps 100 --batch-size 16 --seed 7
+python dqn_render.py checkpoints/dqn_smoke.pt
+```
+
+Training defaults to CPU and never opens visualization. Headless environments
+use SDL's dummy video backend and do not initialize audio. A hidden display is
+still needed for Pygame sprite image conversions. Human playback needs a display
+and audio device; run playback in a separate process. Pygame display state and
+asset caches are process global, so simultaneous headless/human environments
+are unsupported. Training remains frame based with no wall-clock throttling.
+
+Use `--device cuda` where available. `--load PATH` explicitly loads model weights
+with device mapping; it starts a new training run, not an exact optimizer/replay
+resume. Output contains weights compatible with `dqn_render.py`. Target weights
+synchronize every ten episodes. Episode logs report return, steps, ending reason,
+update count, mean loss, and epsilon. Seeds cover exploration, replay, Torch, and
+an environment-owned enemy RNG; GPU reproducibility across hardware is not assured.
+
+## Baseline decisions and limits
+
+The nine observation features, seven actions, MLP, and airborne acceleration
+are preserved. Observations now read the loaded tile grid and use the actual
+water tile IDs (9–10), with bounded indexing. The tile features retain their
+limited original meaning: water ahead/below, and both set to one while airborne.
+They do not provide a full representation of terrain or velocity.
+
+The old reward always penalized every action because of Python boolean syntax;
+it also compared animation enums to action strings. Rewards now penalize shoot
+and throw **commands** by 10,000. Horizontal progress pays `0.1 * delta_x` once,
+replacing repeated absolute-position terms and a large per-frame movement bonus.
+The unreachable grounded jump-animation bonus was removed. Death remains
+-100,000 and completion +100,000. These inherited scales and pacifist intent
+are provisional; smoke tests establish numerical correctness, not reward quality.
+
+Replay snapshots detached CPU vectors, with batch tensors transferred only for
+optimization. Bellman targets mask true termination; time limits still bootstrap.
+Tests check actual parameter changes and a hand-computed terminal/bootstrap target.
+Inventory pickups now cap totals correctly. Grenade/explosion timing flags now
+explicitly distinguish frame from time mode. Enemy tile access handles map edges.
+
+Verified: Gymnasium checker, seeded observations, complete bounded episodes,
+death/exit and time-limit paths, finite rewards, replay shapes/copies, Bellman
+masking, and finite optimizer updates. CUDA and interactive audiovisual playback
+require separate validation. Next: benchmark returns across seeds and held-out
+evaluation episodes, inspect velocity/state aliasing, audit remaining collisions,
+and evaluate reward scales before longer training. No convergence is claimed.
+
+---
+
+## Recovered project documentation
+
 # Overview
 Welcome to my fun little side-scrolling shooter game! You play as a Rambo-style hero, armed with a gun and grenades, facing off against enemy soldiers who are relentless in their pursuit. Enemies patrol their platforms and if they see you, they’ll shoot! Scattered across each level, you’ll find health packs and useful power-ups. These are essential for survival because the game is reasonably difficult. Stay alert, keep moving, and don’t run out of ammo!
 

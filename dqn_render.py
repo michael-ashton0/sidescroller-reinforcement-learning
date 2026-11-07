@@ -39,6 +39,7 @@ def visualize_episode(model:DQN=None,
         model = DQN(obs_size, n_actions)
 
     # Take the model out of training mode
+    model.to(device)
     model.eval()
 
     # Initialize this episode and setup the 'state' to be a tensor since our
@@ -77,8 +78,7 @@ def visualize_episode(model:DQN=None,
 
     # Gracefuly close PyGame environment and return.
     time.sleep(1)
-    pygame.mixer.music.stop()
-    pygame.display.quit()
+    env.close()
     return total_reward
 
 
@@ -103,7 +103,7 @@ def main(model_path=None):
 
     # Load the saved model for CPU or GPU execution.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
 
     # Run this episode.
