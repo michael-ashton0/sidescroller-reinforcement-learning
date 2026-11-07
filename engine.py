@@ -1,5 +1,6 @@
 
 import csv
+import random
 import pygame
 from pygame.mixer import Sound
 from pygame.sprite import spritecollide
@@ -109,6 +110,7 @@ class GameEngine():
         
         # Always start at level 1
         self.level = 1
+        self.rng = random.Random()
 
 
     def reset_world(self):
@@ -248,7 +250,7 @@ class GameEngine():
                     bullet = enemy.shoot()
                     if bullet:
                         self.groups['bullet'].add(bullet)
-                enemy.ai_move(self.world_data, TILEMAP.TILE_SIZE)
+                enemy.ai_move(self.world_data, TILEMAP.TILE_SIZE, rng=self.rng)
                 if enemy.health <= 0:
                     enemy.death()
 
@@ -260,10 +262,10 @@ class GameEngine():
         for item in spritecollide(self.player, self.groups['item'], True):
             if item.box_type == 'ammo':
                 amount = self.player.ammo + item.quantity
-                self.player.ammo += min(amount, self.player.max_ammo)
+                self.player.ammo = min(amount, self.player.max_ammo)
             elif item.box_type == 'grenade':
                 amount = self.player.grenades + item.quantity
-                self.player.grenades += min(amount, self.player.max_grenades)
+                self.player.grenades = min(amount, self.player.max_grenades)
             elif item.box_type == 'health':
                 amount = self.player.health + item.quantity
                 self.player.health = min(amount, self.player.max_health)
@@ -292,7 +294,7 @@ class GameEngine():
         for grenade in self.groups['grenade']:
             if grenade.do_explosion:
                 pos_x, pos_y = grenade.rect.x, grenade.rect.y,
-                explosion = Explosion(pos_x, pos_y, self.counter_type)
+                explosion = Explosion(pos_x, pos_y, self.counter_type == CounterType.TIME_BASED)
                 self.play_sound(GameEngine.explosion_sound_fx)
                 self.groups['explosion'].add(explosion)
                 self.player.health -= grenade.damage_at(self.player.rect)

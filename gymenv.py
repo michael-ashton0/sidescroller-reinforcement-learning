@@ -1,22 +1,19 @@
+import os
+import random
 import pygame
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, COLOR, TILEMAP
-pygame.init()
-pygame.mixer.init()
-pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption('Shooter')
-from os import environ
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.registration import register
-from engine import GameEngine
+from settings import SCREEN_WIDTH, SCREEN_HEIGHT, TILEMAP, DEFAULT_EPISODE_STEPS, RewardSettings
+from engine import GameEngine, TextBar
 from controller import GameController
-import csv
 
 # Not required unless we want to provide traditional gym.make capabilities
 register(id='Shooter-v0',
          entry_point='gymenv:ShooterEnv',
-         max_episode_steps=5000)
+         max_episode_steps=DEFAULT_EPISODE_STEPS,
+         kwargs={'max_episode_steps': None})
 
 class ShooterEnv(gym.Env):
     '''
@@ -29,7 +26,8 @@ class ShooterEnv(gym.Env):
         'render_fps': 60
     }
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, max_episode_steps=DEFAULT_EPISODE_STEPS,
+                 reward_settings=None):
         '''
         Initializes a new Gymnasium environment for the Shooter Game. Loads the
         game engine into the background and defines the action space and the
@@ -37,19 +35,29 @@ class ShooterEnv(gym.Env):
         '''
 
         super().__init__()
+        if render_mode not in (None, 'human'):
+            raise ValueError(f'Unsupported render mode: {render_mode}')
+        if max_episode_steps is not None and max_episode_steps <= 0:
+            raise ValueError('max_episode_steps must be positive')
+        self.reward_settings = reward_settings if reward_settings is not None else RewardSettings()
+        self._closed = False
         self.render_mode = render_mode
-        pygame.init()
+        self.max_episode_steps = max_episode_steps
+        if render_mode is None and not pygame.display.get_init():
+            os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
         pygame.display.init()
-        if self.render_mode != 'human':
-            pygame.display.set_mode((1, 1), pygame.HIDDEN)
-        else:
-            pygame.init()
+        if not pygame.font.get_init():
+            # Font objects cannot survive pygame.font.quit()/pygame.quit().
+            TextBar.font = None
+        pygame.font.init()
+        if render_mode == 'human':
             pygame.mixer.init()
-            pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-            pygame.display.set_caption('Shooter')
-
-        self.screen = pygame.display.get_surface()
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        else:
+            pygame.display.set_mode((1, 1), pygame.HIDDEN)
+            self.screen = None
         self.game = GameEngine(self.screen)
+        self._ended = True
         # Discrete action space: 7 possible moves
         self.action_space = spaces.Discrete(7)
         '''
@@ -78,6 +86,13 @@ class ShooterEnv(gym.Env):
         '''
         Resets the game environment for the beginning of another episode.
         '''
+        if self._closed:
+            raise RuntimeError("Cannot reset a closed environment; create a new instance")
+        super().reset(seed=seed)
+        if seed is not None:
+            self.action_space.seed(seed)
+        self.game.rng = random.Random(int(self.np_random.integers(2**32)))
+        self._ended = False
         self.step_count = 0
         self.game.reset_world()
         self.game.load_current_level()
@@ -85,6 +100,7 @@ class ShooterEnv(gym.Env):
         # Tracks observation and reward values across steps
         self.start_x = self.game.player.rect.centerx
         self.start_y = self.game.player.rect.centery
+        self.previous_x = self.start_x
 
         # Initialize the variables I decided were important for debugging
         debug_info = {
@@ -102,6 +118,11 @@ class ShooterEnv(gym.Env):
         '''
         Agent performs a single action in the game environemnt.
         '''
+        if self._ended:
+            raise RuntimeError('Call reset before stepping a new episode')
+        if not self.action_space.contains(action):
+            raise ValueError(f'Invalid action: {action}')
+        self.last_action = int(action)
         controller = self._action_to_controller(action)
         self.game.update(controller)
         self.step_count += 1
@@ -109,7 +130,9 @@ class ShooterEnv(gym.Env):
         observation, debug_info = self._get_observation()
         reward = self._get_reward()
         terminated = not self.game.player.alive or self.game.level_complete
-        truncated = self.step_count >= 1000
+        truncated = (self.max_episode_steps is not None
+                     and self.step_count >= self.max_episode_steps and not terminated)
+        self._ended = terminated or truncated
 
         return observation, reward, terminated, truncated, debug_info
 
@@ -153,41 +176,16 @@ class ShooterEnv(gym.Env):
         alive = self.game.player.alive 
         finished = self.game.level_complete
         
-        # Check if there is ground in front of the player
-        def get_front_right_tile(p):
-            self.world_data = []
-            with open(f'level{self.game.level}_data.csv', 'r') as csvfile:
-                reader = csv.reader(csvfile, delimiter=',')
-                for idx_y, row_of_tiles in enumerate(reader):
-                    self.world_data.append([])
-                    for idx_x, tile_data in enumerate(row_of_tiles):
-                        self.world_data[idx_y].append(int(tile_data))
-            tile_x = p.rect.centerx // 45
-            tile_y = p.rect.centery // 45
-            tile_ahead_x = tile_x + 1
-            tile_below_y = tile_y + 1
-            tile_ahead = self.world_data[tile_y][tile_ahead_x]
-            tile_below = self.world_data[tile_below_y][tile_ahead_x]
-            # Check if the tile is a solid tile (1-20) or empty (-1)
-            if tile_ahead in [7,8,9, -1]: # water tile or empty space
-                tile_ahead = 1 if tile_ahead in range(1, 21) else 0
-            else:
-                tile_ahead = 0
-            if tile_below in [7,8,9, -1]:
-                tile_below = 1 if tile_below in range(1, 21) else 0
-            else:
-                tile_below = 0
-            return tile_ahead, tile_below
-        if not p.in_air:
-            try:
-                front_right_tile, front_bottom_tile = get_front_right_tile(p)
-            except IndexError:
-                front_right_tile = 0
-                front_bottom_tile = 0
-        else:
-            front_right_tile = 1
-            front_bottom_tile = 1
-
+        # Query the loaded world; positions are world coordinates, independent of camera.
+        tile_x = p.rect.centerx // TILEMAP.TILE_SIZE + 1
+        tile_y = p.rect.centery // TILEMAP.TILE_SIZE
+        def hazard(row, col):
+            data = self.game.world_data
+            if not (0 <= row < len(data) and 0 <= col < len(data[row])):
+                return 0
+            return int(TILEMAP.WATER_TILE_FIRST <= data[row][col] <= TILEMAP.WATER_TILE_LAST)
+        front_right_tile = hazard(tile_y, tile_x) if not p.in_air else 1
+        front_bottom_tile = hazard(tile_y + 1, tile_x) if not p.in_air else 1
 
         # Create an observation (4 values)
         obs = [
@@ -228,30 +226,30 @@ class ShooterEnv(gym.Env):
 
 
     def _get_reward(self):
-        # TODO: Balance the death and rewards so that getting far and dying gives a higher reward than staying at the start
-        if not self.game.player.alive:
-            return -100_000
-         # Originally was reward increment as player increases distance from start
-         # Decided that minimizing distance from the end was my approach
-         # I'm thinking that this also incentivizes taking a long time but I am not sure
-        
-        reward = 0.1 * (self.game.player.rect.centerx - self.start_x)
-        reward += 0.1 * (self._get_exit_offset(self.game.player)[0] - self.game.player.rect.centerx)
-        reward += 0.1 * (self._get_exit_offset(self.game.player)[1] - self.game.player.rect.centery)
-        #reward -= (1 * self.step_count)
-        if self.game.player.action == 'jump' and not self.game.player.in_air:
-            reward += 1_000
-        if self.game.player.action == 'shoot' or 'throw': # Pacifist
-            reward -= 10_000
-        # If the player is moving, give a small reward
-        if self.game.player.vel_x != 0:
-            reward += 1000
-        
+        p = self.game.player
+        progress = p.rect.centerx - self.previous_x
+        self.previous_x = p.rect.centerx
+        if not p.alive:
+            return float(self.reward_settings.death)
+        reward = self.reward_settings.progress * progress
+        # Actions are controller commands; animation enums never represent shooting.
+        if self.last_action == 5:
+            reward += self.reward_settings.shoot
+        elif self.last_action == 6:
+            reward += self.reward_settings.throw
         if self.game.level_complete:
-            reward += 100_000
-        
-        return reward
+            reward += self.reward_settings.completion
+        return float(reward)
 
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._ended = True
+        if self.render_mode == 'human' and pygame.mixer.get_init():
+            pygame.mixer.music.stop()
+            pygame.mixer.quit()
+        pygame.display.quit()
 
     def _action_to_controller(self, action):
         '''

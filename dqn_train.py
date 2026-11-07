@@ -1,169 +1,89 @@
-
+"""Short, reproducible DQN training; run from the repository root."""
+import argparse
+import random
+from pathlib import Path
 import numpy as np
 import torch
 from dqn_model import DQN, ReplayBuffer
-from dqn_render import visualize_episode
 from gymenv import ShooterEnv
-import os
+from settings import DEFAULT_EPISODE_STEPS
 
-GAMMA = 0.99             # Discount factor highly values future reward
-EPSILON_START = 1.0      # Begin with 100% random exploration
-EPSILON_DECAY = 0.995    # Decay slowly
-EPSILON_MIN = 0.05       # Never fully stop exploring
-TARGET_UPDATE_FREQ = 10  # How often to reload stable_net from online_net
-TARGET_RENDER_FREQ = 10  # How often to render the agent during training
-BATCH_SIZE = 64          # Balance learning with efficiency
-MAX_EPISODES = 2000    # 64k ought to be enough for anybody! :)
 
-# Global variable holding CPU/GPU status
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def optimize(online, target, replay, batch_size=64, gamma=0.99):
+    device = next(online.parameters()).device
+    states, actions, rewards, next_states, terminated = (
+        tensor.to(device) for tensor in replay.sample(batch_size))
+    qvalues = online(states).gather(1, actions[:, None]).squeeze(1)
+    with torch.no_grad():
+        targets = rewards + gamma * target(next_states).max(1).values * (1 - terminated)
+    return online.backpropagate(qvalues, targets)
 
-def train_episode(env:ShooterEnv, 
-                  online_net:DQN, 
-                  stable_net:DQN, 
-                  epsilon:float, 
-                  replay:ReplayBuffer):
-    '''
-    Runs a single episode of interaction with the environment and trains the 
-    Q-network using experience replay and target Q-value updates.
 
-    Parameters:
-    - env (ShooterEnv): The game environment.
-    - train_net (DQN): The Q-network being actively trained.
-    - stable_net (DQN): The target Q-network used for stable Q-value estimation.
-    - epsilon (float): Current epsilon value for epsilon-greedy exploration.
-    - replay (ReplayBuffer): Memory buffer storing past experiences.
-
-    Returns:
-    - float: Total reward accumulated during the episode.
-    '''
-
-    # Initialize this episode with the observation (state) being the input
-    # to the neural network (a tensor).
-    state, info = env.reset()
-    state = torch.from_numpy(state).unsqueeze(0).float().to(device)
-    done = False
-    total_reward = 0
-
-    # Play this episode out and train the model as you go.
-    while not done:
-
-        # Choose the next action (get an action, don't track gradients).
-        if np.random.rand() < epsilon:
+def train_episode(env, online_net, stable_net, epsilon, replay, batch_size=64, seed=None):
+    state, _ = env.reset(seed=seed)
+    device = next(online_net.parameters()).device
+    total_reward, losses = 0.0, []
+    while True:
+        if np.random.random() < epsilon:
             action = env.action_space.sample()
         else:
             with torch.no_grad():
-                q_vals = online_net(state)
-                action = q_vals.argmax().item()
-
-        # Take a step forward in the game environment.
-        nstate, reward, terminated, truncated, info = env.step(action)
-        total_reward += reward # put this in front of done to get the last step's rewards
-        done = terminated or truncated
-
-        # Add this step to our replay buffer and convert to a torch object.
-        #replay.push((state.numpy(), action, reward, next_state, done))
-        replay.push((state, action, reward, nstate, done))
-        state = torch.from_numpy(nstate).unsqueeze(0).float().to(device)
-
-        # Don't train the network until we have enough experiences.
-        if len(replay) < BATCH_SIZE:
-            continue
-
-        # Take a 'replay buffer' worth of states and run through NN.
-        states, actions, rewards, next_states, dones = replay.sample(BATCH_SIZE)
-        states = states.to(device)
-        actions = actions.unsqueeze(1).to(device)
-        rewards = rewards.to(device)
-        next_states = next_states.to(device)
-        dones = dones.to(device)
-        qvals = online_net(states).gather(1, actions).squeeze()
-
-        # Compute the current Q-Values using stable network as 
-        # (but don't track gradients yet)
-        with torch.no_grad():
-            next_qvals = stable_net(next_states).max(1)[0]
-            targets = rewards + GAMMA * next_qvals * (1 - dones)
-
-        # Train online NN (q_net) using gradient descent
-        online_net.backpropagate(qvals, targets)
-
-    # Total reward helps monitor progress
-    return total_reward
+                action = online_net(torch.as_tensor(state, device=device)[None]).argmax().item()
+        next_state, reward, terminated, truncated, _ = env.step(action)
+        # Time limits end interaction but still bootstrap from the final observation.
+        replay.push((state, action, reward, next_state, terminated))
+        total_reward += reward
+        state = next_state
+        if len(replay) >= batch_size:
+            loss = optimize(online_net, stable_net, replay, batch_size)
+            if not np.isfinite(loss):
+                raise FloatingPointError(f'Nonfinite training loss: {loss}')
+            losses.append(loss)
+        if terminated or truncated:
+            return dict(reward=total_reward, steps=env.step_count,
+                        terminated=terminated, truncated=truncated, updates=len(losses),
+                        loss=float(np.mean(losses)) if losses else None)
 
 
 def main():
-    '''
-    Trains a Deep Q-Learning neural network to play the custom shooter game
-    using experience replay and a target network for stability.
-    '''
-
-    epsilon = EPSILON_START
-    env_headless = ShooterEnv(render_mode=None)
-    obs_size = env_headless.observation_space.shape[0]
-    n_actions = env_headless.action_space.n
-    print(f"Creating online and stable neural networks "
-          f"({n_actions} actions / {obs_size} observation vars)")
-
-    # Online and stable networks with the stable version being a copy of the
-    # online version that is refreshed slowly to maintain learning stability.
-    file_path = 'dqn_shooter_final.pt'
-    if os.path.exists(file_path):
-        print(f"Loading existing model from '{file_path}'")
-        online_net = DQN(obs_size, n_actions)
-        online_net.load_state_dict(torch.load(file_path))
-        online_net.to(device)
-    else:
-        print(f"Creating new model")
-        online_net = DQN(obs_size, n_actions)
-    
-    stable_net = DQN(obs_size, n_actions)
-    online_net.to(device)
-    stable_net.to(device)
-    stable_net.load_state_dict(online_net.state_dict())
-
-    # Use ADAM gradient descent and a replay buffer to store state transitions.
-    replay = ReplayBuffer()
-
-    # Main learning loop, going through each episode one at a time.
-    print(f"Training started...")
-    for episode in range(1, MAX_EPISODES):
-        
-        # Train the neural networks.
-        online_net.train()
-        stable_net.train()
-        reward = train_episode(env_headless, 
-                               online_net, 
-                               stable_net, 
-                               epsilon, 
-                               replay)
-
-        # Update target network (the stable network) every X episodes.
-        if episode > 0 and episode % TARGET_UPDATE_FREQ == 0:
-            print(f"(updated stable network with latest from online network)")
-            stable_net.load_state_dict(online_net.state_dict())
-
-        # Report on the learning progress (and render agent every x episodes).
-        if episode > 0 and episode % TARGET_RENDER_FREQ == 0:
-            print(f"\n>> Visualizing agent at episode {episode} <<\n")
-            visualize_episode(online_net, device)
-            torch.save(online_net.state_dict(), f'dqn_shooter_{episode}.pt')
-        print(f"Episode {episode:>6} | "
-              f"Reward: {reward:>10.2f} | "
-              f"Epsilon: {epsilon:.3f}")
-
-        # Epsilon greedy decay
-        epsilon = max(EPSILON_MIN, epsilon * EPSILON_DECAY)
-
-    # All done, close out the environment
-    filename = 'dqn_shooter_final.pt'
-    torch.save(online_net.state_dict(), filename)
-    print(f"\nTraining complete. Final model saved as '{filename}'\n")
-    env_headless.close()
-
-
-if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--episodes', type=int, default=2)
+    parser.add_argument('--max-steps', type=int, default=DEFAULT_EPISODE_STEPS)
+    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--device', default='cpu')
+    parser.add_argument('--output', type=Path, default=Path('checkpoints/dqn_smoke.pt'))
+    parser.add_argument('--load', type=Path)
+    args = parser.parse_args()
+    if min(args.episodes, args.max_steps, args.batch_size) <= 0:
+        parser.error('episodes, max-steps and batch-size must be positive')
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.set_num_threads(1)
+    env = ShooterEnv(max_episode_steps=args.max_steps)
     try:
-        main()
-    except KeyboardInterrupt:
-        print("\nCtrl+C detected... bye for now.\n")
+        online = DQN(9, 7).to(args.device)
+        if args.load:
+            online.load_state_dict(torch.load(args.load, map_location=args.device, weights_only=True))
+        target = DQN(9, 7).to(args.device)
+        target.load_state_dict(online.state_dict())
+        target.eval()
+        replay = ReplayBuffer()
+        epsilon = 1.0
+        for episode in range(1, args.episodes + 1):
+            metrics = train_episode(env, online, target, epsilon, replay,
+                                    args.batch_size, seed=args.seed + episode - 1)
+            print(f'Episode {episode}: {metrics} epsilon={epsilon:.3f}', flush=True)
+            if episode % 10 == 0:
+                target.load_state_dict(online.state_dict())
+            epsilon = max(0.05, epsilon * 0.995)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(online.state_dict(), args.output)
+        print(f'Saved weights: {args.output}')
+    finally:
+        env.close()
+
+
+if __name__ == '__main__':
+    main()

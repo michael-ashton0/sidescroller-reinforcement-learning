@@ -86,6 +86,7 @@ class DQN(nn.Module):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        return loss.detach().item()
 
 
 class ReplayBuffer:
@@ -111,7 +112,11 @@ class ReplayBuffer:
         Parameters:
         - transition: A tuple of (state, action, reward, next_state, done).
         '''        
-        self.buffer.append(transition)
+        state, action, reward, next_state, terminated = transition
+        def snapshot(value):
+            return torch.as_tensor(value, dtype=torch.float32).detach().cpu().reshape(-1).clone()
+        self.buffer.append((snapshot(state), int(action), float(reward),
+                            snapshot(next_state), bool(terminated)))
 
     def sample(self, 
                batch_size:int):
@@ -128,10 +133,10 @@ class ReplayBuffer:
         states, actions, rewards, next_states, dones = zip(*batch)
 
         return (
-            torch.tensor(np.array(states), dtype=torch.float32).squeeze(1),
+            torch.stack(states),
             torch.tensor(actions, dtype=torch.int64),
             torch.tensor(rewards, dtype=torch.float32),
-            torch.tensor(np.array(next_states), dtype=torch.float32),
+            torch.stack(next_states),
             torch.tensor(dones, dtype=torch.float32),
         )
 
