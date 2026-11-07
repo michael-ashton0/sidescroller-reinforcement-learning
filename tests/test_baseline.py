@@ -1,6 +1,4 @@
 import os
-os.environ['SDL_VIDEODRIVER'] = 'dummy'
-os.environ['SDL_AUDIODRIVER'] = 'dummy'
 import unittest
 import gymnasium as gym
 from settings import DEFAULT_EPISODE_STEPS, RewardSettings
@@ -11,6 +9,11 @@ from gymnasium.utils.env_checker import check_env
 from gymenv import ShooterEnv
 from dqn_model import DQN, ReplayBuffer
 from dqn_train import optimize
+
+# Gymnasium 1.1.1 overwrites SDL_AUDIODRIVER with "dsp" when imported on Linux.
+# Apply test backends after imports but before any Pygame subsystem initializes.
+os.environ['SDL_VIDEODRIVER'] = 'dummy'
+os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
 
 class EnvironmentTests(unittest.TestCase):
@@ -118,6 +121,7 @@ class RegisteredLifecycleTests(unittest.TestCase):
     def test_repeated_creation_close_and_reinitialization(self):
         for mode in (None, 'human', None, 'human', None):
             with self.subTest(mode=mode):
+                self.assertEqual(os.environ['SDL_AUDIODRIVER'], 'dummy')
                 env = ShooterEnv(render_mode=mode, max_episode_steps=2)
                 obs, _ = env.reset(seed=3)
                 self.assertTrue(env.observation_space.contains(obs))
