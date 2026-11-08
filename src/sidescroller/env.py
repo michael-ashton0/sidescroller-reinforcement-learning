@@ -2,16 +2,21 @@ import os
 import random
 import pygame
 import numpy as np
+# Gymnasium 1.1.1 overwrites the Linux audio backend on import. Respect an
+# explicitly selected backend (including CI's dummy backend).
+_audio_driver = os.environ.get('SDL_AUDIODRIVER')
 import gymnasium as gym
+if _audio_driver is not None:
+    os.environ['SDL_AUDIODRIVER'] = _audio_driver
 from gymnasium import spaces
 from gymnasium.envs.registration import register
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT, TILEMAP, DEFAULT_EPISODE_STEPS, RewardSettings
-from engine import GameEngine, TextBar
-from controller import GameController
+from sidescroller.settings import SCREEN_WIDTH, SCREEN_HEIGHT, TILEMAP, DEFAULT_EPISODE_STEPS, RewardSettings
+from sidescroller.game.engine import GameEngine, TextBar
+from sidescroller.game.controller import GameController
 
 # Not required unless we want to provide traditional gym.make capabilities
 register(id='Shooter-v0',
-         entry_point='gymenv:ShooterEnv',
+         entry_point='sidescroller.env:ShooterEnv',
          max_episode_steps=DEFAULT_EPISODE_STEPS,
          kwargs={'max_episode_steps': None})
 

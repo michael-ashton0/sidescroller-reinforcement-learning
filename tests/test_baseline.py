@@ -1,14 +1,14 @@
 import os
 import unittest
 import gymnasium as gym
-from settings import DEFAULT_EPISODE_STEPS, RewardSettings
+from sidescroller.settings import DEFAULT_EPISODE_STEPS, RewardSettings
 import numpy as np
 import pygame
 import torch
 from gymnasium.utils.env_checker import check_env
-from gymenv import ShooterEnv
-from dqn_model import DQN, ReplayBuffer
-from dqn_train import optimize
+from sidescroller.env import ShooterEnv
+from sidescroller.rl.model import DQN, ReplayBuffer
+from sidescroller.rl.train import optimize
 
 # Gymnasium 1.1.1 overwrites SDL_AUDIODRIVER with "dsp" when imported on Linux.
 # Apply test backends after imports but before any Pygame subsystem initializes.
@@ -57,7 +57,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(self.env.step(0)[2:4], (False, True))
 
     def test_frame_cooldowns_and_grenade_fuse(self):
-        from settings import CounterType, ENVIRONMENT
+        from sidescroller.settings import CounterType, ENVIRONMENT
         self.env.reset(seed=1)
         p = self.env.game.player
         self.assertEqual(p.counter_type, CounterType.FRAME_BASED)
@@ -85,7 +85,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(self.env._get_reward(), 0)
         self.env.last_action = 5
         self.assertEqual(self.env._get_reward(), -10000)
-        from weapons import ItemBox
+        from sidescroller.game.weapons import ItemBox
         p = self.env.game.player
         for kind, attr, cap in [('ammo', 'ammo', p.max_ammo), ('grenade', 'grenades', p.max_grenades)]:
             box = ItemBox(0, 0, kind)

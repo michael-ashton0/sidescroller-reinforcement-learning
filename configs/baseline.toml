@@ -1,0 +1,28 @@
+[training]
+episodes = 500
+max_steps = 1000
+batch_size = 64
+seed = 0
+device = "cpu"
+learning_rate = 0.0001
+gamma = 0.99
+epsilon_start = 1.0
+epsilon_min = 0.05
+epsilon_decay = 0.995
+target_update_episodes = 10
+replay_capacity = 100000
+torch_threads = 1
+
+[reward]
+progress = 1
+shoot = -100.0
+throw = -100.0
+death = -1000.0
+completion = 10000.0
+
+[simulation]
+level = 1
+timing = "frame"
+fps = 60
+screen_width = 1200
+screen_height = 720
