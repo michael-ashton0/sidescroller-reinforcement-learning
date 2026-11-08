@@ -176,3 +176,6 @@ cython_debug/
 
 # Experiment outputs
 runs/
+
+# Relic but keeping
+checkpoints/
