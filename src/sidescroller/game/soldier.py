@@ -1,10 +1,11 @@
+from sidescroller.assets import asset_path
 import os
 import random
 import pygame
 from pygame.sprite import Group
 from pygame.time import get_ticks
-from weapons import Bullet, Grenade
-from settings import Direction, Action, CounterType, ENVIRONMENT, TILEMAP
+from sidescroller.game.weapons import Bullet, Grenade
+from sidescroller.settings import Direction, Action, CounterType, ENVIRONMENT, TILEMAP
 
 
 # All soldiers share these common animation types
@@ -27,7 +28,7 @@ class Soldier(pygame.sprite.Sprite):
             cls.animations[soldier_type] = cls._load_animations(base_dirpath)
             
         #if interactive_mode and cls.jump_fx is None:
-        #    cls.jump_fx = pygame.mixer.Sound('audio/jump.wav')
+        #    cls.jump_fx = pygame.mixer.Sound(asset_path('audio/jump.wav'))
         #    cls.jump_fx.set_volume(0.5)
 
     @staticmethod
@@ -62,7 +63,7 @@ class Soldier(pygame.sprite.Sprite):
         Initializes a Soldier object by setting all the default values.
         '''
         super().__init__()
-        Soldier.load_assets(f'img/{kind}', kind, interactive_mode)
+        Soldier.load_assets(asset_path(f'img/{kind}'), kind, interactive_mode)
 
         self.alive = True
         self.health = health

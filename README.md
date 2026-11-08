@@ -1,127 +1,117 @@
-# Baseline rehabilitation
+# Sidescroller reinforcement learning
 
-Work is on `rehab`, based on recovered `progress-update`. Run commands from
-this repository root because game assets use relative paths. Python 3.12 is
-verified; dependencies are pinned in `requirements.txt`.
+A reinforcement learning project built on a Pygame shooter, with a Gymnasium environment and a PyTorch DQN agent.
+
+## Project origins and contributions
+
+This project began as a school assignment. My teacher provided the majority of the
+human-playable shooter. The game
+was a starting point for the assignment, and I do not claim to have created
+it from scratch.
+
+My work focused on creating the agent environment and reinforcement learning
+components: adapting the game for Gymnasium, defining observations, actions,
+and rewards, and implementing the DQN training and playback workflow. The
+repository now also includes packaging, experiment configuration, run tracking,
+and regression tests.
+
+The [MIT license](LICENSE) credits him, Prof Tallman; that notice is retained.
+
+## Setup
+
+This was performed on Python 3.12
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -e .
 python -m unittest discover -s tests -v
-python dqn_train.py --episodes 2 --max-steps 100 --batch-size 16 --seed 7
-python dqn_render.py checkpoints/dqn_smoke.pt
 ```
 
-Training defaults to CPU and never opens visualization. Headless environments
-use SDL's dummy video backend and do not initialize audio. A hidden display is
-still needed for Pygame sprite image conversions. Human playback needs a display
-and audio device; run playback in a separate process. Pygame display state and
-asset caches are process global, so simultaneous headless/human environments
-are unsupported. Training remains frame based with no wall-clock throttling.
+## Structure
 
-Use `--device cuda` where available. `--load PATH` explicitly loads model weights
-with device mapping; it starts a new training run, not an exact optimizer/replay
-resume. Output contains weights compatible with `dqn_render.py`. Target weights
-synchronize every ten episodes. Episode logs report return, steps, ending reason,
-update count, mean loss, and epsilon. Seeds cover exploration, replay, Torch, and
-an environment-owned enemy RNG; GPU reproducibility across hardware is not assured.
+```text
+src/sidescroller/
+  game/             engine, soldiers, weapons, controller, interactive game
+  env.py            Gymnasium wrapper and Shooter-v0 registration
+  rl/               model, replay buffer, training, playback
+  experiments/      validated TOML configuration and run output helpers
+  settings.py       original physics, timing, tile, and reward defaults
+  assets/           img/, audio/, levels/
+configs/baseline.toml
+tests/              correctness tests and pre-refactor golden trajectory
+runs/               experiment outputs
+```
 
-## Verification and configuration
+## Training and playback
 
-GitHub Actions (`.github/workflows/baseline.yml`) installs the pinned dependencies
-on Python 3.12, runs unittest, and trains two 100-step headless episodes. Each
-command is a separate required job step; failures propagate to the job. Nonfinite
-optimizer losses also cause training to exit unsuccessfully.
+ex:
+```sh
+sidescroller-train --config configs/baseline.toml --episodes 2 --max-steps 100 --batch-size 16 --seed 7
+sidescroller-play runs/<run-id>/checkpoints/final.pt --config configs/baseline.toml
+sidescroller-game
+```
 
-Import `gymenv` before calling `gymnasium.make("Shooter-v0")` to register it.
-`DEFAULT_EPISODE_STEPS` in `settings.py` supplies the 1,000-step default for both
-direct environments and training. Registered environments delegate limits solely
-to Gymnasium's `TimeLimit`, so `gym.make("Shooter-v0", max_episode_steps=2000)`
-can override the default without an earlier internal cutoff. Direct construction
-accepts `max_episode_steps=...` and handles its own limit.
+Equivalent module commands are:
+- `python -m sidescroller.rl.train`
+- `python -m sidescroller.rl.playback`
 
-`RewardSettings` in `settings.py` exposes progress, shooting, throwing, death,
-and completion coefficients without changing their baseline scales. Pass
-`ShooterEnv(reward_settings=RewardSettings(...))` or provide the same keyword to
-`gym.make`. Death overrides all other components; completion adds to progress
-and command penalties. A Python dataclass keeps these few settings explicit
-without a config loader. Add a saved TOML/JSON experiment configuration later
-when comparing runs requires recording settings alongside results.
+Training accepts:
+- `--episodes`
+- `--max-steps`
+- `--batch-size`
+- `--seed`
+- `--device` 
+overrides, applied after TOML loading. `--config` is optional; omission
+uses the same baseline defaults. `--run-dir runs/my-run` selects a new directory
+and refuses to overwrite an existing run. 
 
-The verification pass passed 14 tests locally, including registered default and
-3/1,001-step override limits, alternating headless/human-mode creation using SDL
-dummy drivers, repeated close, global `pygame.quit()`, and reinitialization.
-It fixed a stale cached HUD font that caused a native crash after global shutdown.
-Closed instances reject reset/step; create a new instance to restart. Concurrent
-environments still share Pygame resources and remain unsupported.
-The two-episode smoke test completed 100 steps each with 85 and 100 updates and
-finite mean losses (3568.0054 and 3102.5713). Real display/audio hardware and CUDA
-remain untested; dummy-driver rendering is covered. Hosted CI results must be
-checked before merging; local tests do not establish learning convergence.
+Default directories use timestamps + unique suffix beneath the caller's 
+`runs/` directory. `--output PATH` optionally exports an extra copy of 
+the final weights for older workflows.
 
-## Baseline decisions and limits
+`--load PATH` loads **model weights only** with device mapping. It starts a new
+run, fresh optimizer, replay, epsilon schedule, and random streams. Weight files 
+retain the baseline state-dict format. Playback takes a positional weights path 
+and `--config`, using its seed, device, step limit, and reward settings. 
 
-The nine observation features, seven actions, MLP, and airborne acceleration
-are preserved. Observations now read the loaded tile grid and use the actual
-water tile IDs (9–10), with bounded indexing. The tile features retain their
-limited original meaning: water ahead/below, and both set to one while airborne.
-They do not provide a full representation of terrain or velocity.
+Training defaults to CPU. The environment selects dummy video automatically for headless 
+construction; audio is not initialized. Human playback requires display/audio hardware unless 
+dummy drivers are explicitly selected. Concurrent headless/human environments are unsupported.
 
-The old reward always penalized every action because of Python boolean syntax;
-it also compared animation enums to action strings. Rewards now penalize shoot
-and throw **commands** by 10,000. Horizontal progress pays `0.1 * delta_x` once,
-replacing repeated absolute-position terms and a large per-frame movement bonus.
-The unreachable grounded jump-animation bonus was removed. Death remains
--100,000 and completion +100,000. These inherited scales and pacifist intent
-are provisional; smoke tests establish numerical correctness, not reward quality.
+## Configuration and outputs
 
-Replay snapshots detached CPU vectors, with batch tensors transferred only for
-optimization. Bellman targets mask true termination; time limits still bootstrap.
-Tests check actual parameter changes and a hand-computed terminal/bootstrap target.
-Inventory pickups now cap totals correctly. Grenade/explosion timing flags now
-explicitly distinguish frame from time mode. Enemy tile access handles map edges.
+`configs/baseline.toml` is the control center for training hyperparameters and all five reward
+coefficients. 
 
-Verified: Gymnasium checker, seeded observations, complete bounded episodes,
-death/exit and time-limit paths, finite rewards, replay shapes/copies, Bellman
-masking, and finite optimizer updates. CUDA and interactive audiovisual playback
-require separate validation. Next: benchmark returns across seeds and held-out
-evaluation episodes, inspect velocity/state aliasing, audit remaining collisions,
-and evaluate reward scales before longer training. No convergence is claimed.
+Network architecture currently sits at 9 inputs, 256/128/64 hidden units, and 7 actions.
 
----
+Each run contains:
 
-## Recovered project documentation
+- `config.json`: settings after CLI overrides & simulation constants.
+- `metadata.json`: source checkout Git commit and dirty flag, base seed, dependency
+  and Python versions, source config path, optional loaded weights, and checkpoint path.
+- `episodes.jsonl`: episode index, actual episode seed, epsilon, return, steps,
+  ending reason, update count, and mean loss.
+- `checkpoints/final.pt`: portable model weights, with no optimizer/replay state.
+- `result.json`: completion and export paths, or failure information.
 
-# Overview
-Welcome to my fun little side-scrolling shooter game! You play as a Rambo-style hero, armed with a gun and grenades, facing off against enemy soldiers who are relentless in their pursuit. Enemies patrol their platforms and if they see you, they’ll shoot! Scattered across each level, you’ll find health packs and useful power-ups. These are essential for survival because the game is reasonably difficult. Stay alert, keep moving, and don’t run out of ammo!
+Seeds cover Python/replay, NumPy, Torch, action sampling, and the
+independent enemy RNG.
 
-## Acknowledgements ##
-This was my first game of any significance. I owe a lot of credit to **[Coding With Russ](https://github.com/russs123/Shooter)** and his fantastic tutorials. I watched several of his [YouTube videos](https://www.youtube.com/watch?v=DHgj5jhMJKg&list=PLjcN1EyupaQm20hlUE11y9y8EY2aXLpnv) and borrowed (err, ...copied) his graphics and sounds verbatim. That said, I designed the code from scratch and used a completely different architecture.
+## Verification and scope
 
-## Structure ##
-Although there are a handful of small files, the majority of my game is contained in these three files:
-* `shooter.py:` This is the main game loop. It creates the game controller, screen, and game engine objects. It can run in menu mode, where it displays a basic menu with Start and Exit buttons. If the user clicks Start, then it switches to interactive mode by running the game loop.
-* `solder.py:` Defines the Soldier class, which is the base object for all characters in the game. The file contains two additional classes, Player and Enemy, both of which inherit from Soldier and have a few customizations. Most of the code is pretty straight-forward with the possible exception of 
-* `engine.py:` The largest and most confusing file of them all. This file loads the maps, maintains the overall game state, and calculates
+### Tests and their documentation was generated by ChatGPT, I validated them but do not claim to have written them
 
-## PyGame ##
-For anyone who is new to PyGame, there are a few concepts that you need to know to get started: Sprites, Collisions, Events, and Blitting.
-For those who want to become experts, there are a lot of additional details to understand. You don’t need to master everything right away. You can learn these as you go!
-### Sprites ###
-Sprites are the most important object in PyGame. Every character, item, and piece of terrain is a sprite and inherits from the sprite class. It's possible to have some background graphics and shapes that are something other than a sprite, but pretty much every object that the user interacts with will be a sprite. Sprites have an image and a rectangle (`rect`). The image defines what the sprite looks like on the screen. The rectangle is used to interact with other sprites. Usually, the rectangle is the exact same size as the image, but there are reasons to make them different sizes, and my game occasionally makes the rectangle slightly smaller than the image.
-You can put sprites into groups, which makes the code a lot simpler because you can apply certain operations to every sprite in the group. For instance, you might have a group for all of the enemies or the ground terrain, power-ups, and so on.
-#### Images ####
-You can load a few different types of image files into PyGame, but PNGs seem to be the most common because they provide transparency, which greatly improves the graphics for any sprite that is not rectangular. The image namespace includes a lot of helper functions for transforming the images (flipping, scaling, etc). Make sure that you convert image files with the `convert_alpha()` function. This will help your game to render faster.
-#### Rectangles ####
-Rectangles define the boundaries of the sprite. As the rectangle goes, so does the sprite. This means that you move the rectangle to move the sprite. Rectangles from many different anchor points, such as their centers, top-left corners, right sides (x-coordinate only), bottoms (y-coordinate only), and so on.
-### Collisions ###
-PyGame includes a bunch of built-in functions that detect collisions between different sprites. It does this through the sprite's rectangle. Most of the time, you just work with the sprite object and trust the underlying framework to keep track of the rectangles. But you can directly check the rectangles for collisions, and occasionally, this is helpful.
-In my game, you'll notice times when I check for collisions between a single sprite and a group of sprites. For example, I check to see if our hero has collided with any bullets. I also handle collisions between the player and water (unfortunately, he can't swim and quickly drowns). And my very simple physics engine uses the ground terrain sprites to stop the hero from falling when he hits the ground.
-### Events ###
-Most user input is passed to PyGame through events. These events include keystrokes and mouse clicks. PyGame allows you to define your own custom events and this is helpful for using timers that execute code on some sort of timed or repeated basis. For games, the keyboard is a common input device that can be used almost like a video game controller. You can quickly check for keys to be pressed down, let up, or held. It turns out that there are certain keyboard with certain key combinations that cannot be detected simultaneously. If you are trying to check for a whole bunch of keys simultaneously, and it seems like there are certain keys that are not being registered, this might be the culprit. Doh.
-### Blitting ###
-'Blit' is a new word for most non-game programmers. Blitting means drawing images on the screen. PyGame does not automatically update the screen, so you must manually draw everything each frame. A bunch of blit operations can occur in sequence and when all of the operations are finished, the resulting image can be drawn. This is good because PyGame must do a lot of expensive calculations to render your game. If a graphics library were to draw each image individually, the game would lag significantly. By only drawing one single image, the game is much faster. PyGame will determine which images should be in the background and which ones are in the foreground. Whenever two images overlap, it will show the correct portions of each image. You just need to make sure that you blit the images in the correct order.
+The golden fixture `tests/fixtures/baseline.json` was captured **before moving
+modules**, from baseline `df869a6` (merged as `b6d738b`). Two seeds run a predefined
+action sequence through movement, jumps, shooting, throwing, and death. Tests
+compare every observation, reward, ending flag, player/enemy state, projectile
+state, and camera offset exactly, including execution from an unrelated directory.
+The fixture is a regression oracle; do not regenerate it to accommodate changes.
 
-## Conclusion ##
-This game is a fun way to learn PyGame, and it taught me a lot about game programming. If you’re new to PyGame, start small, experiment, and learn as you go. Have fun coding!
+Tests also cover Gymnasium API validity, configurable limits, resource lifecycle,
+reward components, replay, a hand-computed Bellman target, real parameter updates,
+configuration rejection, run metadata, weights reload, and dummy-driver playback.
+CI installs the package, runs unittest, and runs two 100-step training episodes.
+Failures or nonfinite losses fail the job. No extended training is part of this phase.

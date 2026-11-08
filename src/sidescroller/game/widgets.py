@@ -1,5 +1,5 @@
 import pygame
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT
+from sidescroller.settings import SCREEN_WIDTH, SCREEN_HEIGHT
 from enum import IntEnum
 
 

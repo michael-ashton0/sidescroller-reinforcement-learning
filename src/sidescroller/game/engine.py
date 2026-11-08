@@ -1,3 +1,4 @@
+from sidescroller.assets import asset_path
 
 import csv
 import random
@@ -9,9 +10,9 @@ from pygame.sprite import Group
 from pygame.image import load
 from pygame.draw import rect
 from os.path import exists
-from soldier import Player, Enemy
-from weapons import ItemBox, Grenade, Explosion
-from settings import (SCREEN_HEIGHT, SCREEN_WIDTH, 
+from sidescroller.game.soldier import Player, Enemy
+from sidescroller.game.weapons import ItemBox, Grenade, Explosion
+from sidescroller.settings import (SCREEN_HEIGHT, SCREEN_WIDTH, 
                       SCROLL_RIGHT, SCROLL_LEFT,
                       ENVIRONMENT, TILEMAP, COLOR, 
                       Direction, CounterType)
@@ -43,14 +44,14 @@ class GameEngine():
 
         # Intialize background music if there's a human player
         if interactive_mode:
-            pygame.mixer.music.load('audio/music.mp3')
+            pygame.mixer.music.load(asset_path('audio/music.mp3'))
             pygame.mixer.music.set_volume(0.3)
             pygame.mixer.music.play(-1, 0.0, 2500)
-            cls.jump_sound_fx = Sound('audio/jump.wav')
+            cls.jump_sound_fx = Sound(asset_path('audio/jump.wav'))
             cls.jump_sound_fx.set_volume(0.5)
-            cls.bullet_sound_fx = Sound('audio/shot.wav')
+            cls.bullet_sound_fx = Sound(asset_path('audio/shot.wav'))
             cls.bullet_sound_fx.set_volume(0.4)
-            cls.explosion_sound_fx = Sound('audio/grenade.wav')
+            cls.explosion_sound_fx = Sound(asset_path('audio/grenade.wav'))
             cls.explosion_sound_fx.set_volume(1)
 
         # Load all possible foreground tiles. Even if the game is being played
@@ -59,17 +60,17 @@ class GameEngine():
         if cls.tile_img_list is None:
             cls.tile_img_list = []
             for tile_num in range(TILEMAP.TILE_TYPE_COUNT):
-                img = load(f'img/tile/{tile_num}.png').convert_alpha()
+                img = load(asset_path(f'img/tile/{tile_num}.png')).convert_alpha()
                 img = scale(img, (TILEMAP.TILE_SIZE, TILEMAP.TILE_SIZE))
                 cls.tile_img_list.append(img)
 
         # Load all of the background images.
         if cls.bg_img is None:
             cls.bg_img = [
-                load('img/background/sky_cloud.png').convert_alpha(),
-                load('img/background/mountain.png').convert_alpha(),
-                load('img/background/pine1.png').convert_alpha(),
-                load('img/background/pine2.png').convert_alpha()
+                load(asset_path('img/background/sky_cloud.png')).convert_alpha(),
+                load(asset_path('img/background/mountain.png')).convert_alpha(),
+                load(asset_path('img/background/pine1.png')).convert_alpha(),
+                load(asset_path('img/background/pine2.png')).convert_alpha()
             ]
             cls.bg_width = min([img.get_width() for img in cls.bg_img])
         if cls.bg_ypos is None:
@@ -181,7 +182,7 @@ class GameEngine():
         Advances Player to the next level.
         '''
         self.level += 1
-        if exists(f'level{self.level}_data.csv'):
+        if exists(asset_path(f'levels/level{self.level}_data.csv')):
             self.load_current_level()
             return True
         else:
@@ -196,7 +197,7 @@ class GameEngine():
         # Read the level data from a CSV file
         self.reset_world()
         self.world_data = []
-        with open(f'level{self.level}_data.csv', 'r') as csvfile:
+        with open(asset_path(f'levels/level{self.level}_data.csv'), 'r') as csvfile:
             reader = csv.reader(csvfile, delimiter=',')
             for idx_y, row_of_tiles in enumerate(reader):
                 self.world_data.append([])

@@ -1,16 +1,17 @@
 
-import sys
+import argparse
+from sidescroller.experiments.config import load_config
 import time
 import torch
 import pygame
-from gymenv import ShooterEnv
-from dqn_model import DQN
-from settings import FPS
+from sidescroller.env import ShooterEnv
+from sidescroller.rl.model import DQN
+from sidescroller.settings import FPS
 
 
 def visualize_episode(model:DQN=None, 
                       #env:ShooterEnv, 
-                      device:str='cpu'):
+                      device:str='cpu', config=None):
     '''
     Renders a single episode of the custom Shooter environment using a 
     pre-trained DQN agent.
@@ -27,8 +28,10 @@ def visualize_episode(model:DQN=None,
     # We need pygame so that we can handle keyboard events and, at the end of
     # the episode, close the display window. The keyboard is *not* to interact
     # with the game, but we might want to close early.
+    config = config or load_config()
     clock = pygame.time.Clock()
-    env = ShooterEnv(render_mode="human")
+    env = ShooterEnv(render_mode="human", max_episode_steps=config.training.max_steps,
+                     reward_settings=config.reward)
     if not pygame.get_init():
         pygame.init()
         pygame.mixer.init()
@@ -44,7 +47,7 @@ def visualize_episode(model:DQN=None,
 
     # Initialize this episode and setup the 'state' to be a tensor since our
     # DQN model is expecting all inputs to be tensors.
-    state, info = env.reset()
+    state, info = env.reset(seed=config.training.seed)
     state = torch.from_numpy(state).unsqueeze(0).float().to(device)
     total_reward = 0
     done = False
@@ -82,43 +85,25 @@ def visualize_episode(model:DQN=None,
     return total_reward
 
 
-def main(model_path=None):
-    '''
-    Loads a pre-trained DQN agent and runs a single episode of the Shooter game
-    with rendering enabled.
-
-    Parameters:
-    - model_path (str): Path to the saved model file (.pt) containing the 
-    trained weights.
-
-    Returns:
-    - float: The total accumulated reward from the episode.
-    '''
-
-    # Create a fresh instance of the model for the appropriate environment.
-    env = ShooterEnv(render_mode="human")
-    obs_size = env.observation_space.shape[0]
-    n_actions = env.action_space.n
-    model = DQN(obs_size, n_actions)
-
-    # Load the saved model for CPU or GPU execution.
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def main(model_path, config=None):
+    config = config or load_config()
+    device = torch.device(config.training.device)
+    model = DQN(9, 7)
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-    model.to(device)
+    return visualize_episode(model, device, config)
 
-    # Run this episode.
-    reward = visualize_episode(model, device)
-    env.close()
-    return reward
+
+def cli():
+    parser = argparse.ArgumentParser(description='Play a weights checkpoint using an experiment config')
+    parser.add_argument('model_path')
+    parser.add_argument('--config')
+    args = parser.parse_args()
+    try:
+        reward = main(args.model_path, load_config(args.config))
+        print(f'Episode finished with {reward} reward')
+    finally:
+        pygame.quit()
+
 
 if __name__ == '__main__':
-
-    # We must read in a saved model to play the game.
-    if len(sys.argv) < 2:
-        print(f"Usage: python {__file__} <model_path>")
-        sys.exit(1)
-    model_path = sys.argv[1]
-    total_reward = main(model_path)
-    print(f"Episode finished with {total_reward} reward\n")
-    pygame.quit()
-
+    cli()

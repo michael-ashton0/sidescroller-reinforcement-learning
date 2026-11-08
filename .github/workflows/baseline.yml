@@ -15,6 +15,6 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -r requirements.txt
+      - run: python -m pip install .
       - run: python -m unittest discover -s tests -v
-      - run: python dqn_train.py --episodes 2 --max-steps 100 --batch-size 16 --seed 7 --output /tmp/dqn-smoke.pt
+      - run: sidescroller-train --config configs/baseline.toml --episodes 2 --max-steps 100 --batch-size 16 --seed 7 --output /tmp/dqn-smoke.pt
