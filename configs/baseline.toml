@@ -14,11 +14,11 @@ replay_capacity = 100000
 torch_threads = 1
 
 [reward]
-progress = 1
-shoot = -100.0
-throw = -100.0
-death = -1000.0
-completion = 10000.0
+progress = 0.1
+shoot = -10000.0
+throw = -10000.0
+death = -100000.0
+completion = 100000.0
 
 [simulation]
 level = 1
